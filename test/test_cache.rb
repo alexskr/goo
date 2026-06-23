@@ -158,5 +158,24 @@ class TestCache < MiniTest::Unit::TestCase
     Goo.use_cache=false
   end
 
+  # Phase 0 placeholder for the sparql-client de-fork migration.
+  #
+  # The forked sparql-client invalidates a graph's query cache BEFORE the SPARQL UPDATE
+  # that rewrites it commits. That is the invalidate-before-write race documented in
+  # docs/sparql-client-defork-proposal.md (§3.1): a concurrent read landing between the
+  # invalidate and the commit can re-cache stale triples that then survive indefinitely.
+  #
+  # The existing tests above only check the post-settle round-trip (key gone, new value
+  # returned), which the buggy ordering still passes. This test pins the *corrected*
+  # contract -- the write commits, THEN the cache invalidates -- by recording the call
+  # order around a real save.
+  #
+  # It is skipped until Phase 3, when caching moves into Goo::SPARQL::Ext::Caching and
+  # invalidation is reordered to run after `super` (the write). It cannot pass against the
+  # current fork, so enabling it now would just add a permanent red.
+  def test_invalidation_happens_after_write
+    skip "Enable in Phase 3: caching moves to Goo::SPARQL::Ext::Caching and invalidation " \
+         "is reordered after the write (super). See docs/sparql-client-defork-proposal.md §3.1."
+  end
 
 end
