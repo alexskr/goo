@@ -20,6 +20,30 @@ module Goo
         @cache.redis_cache = redis_cache
       end
 
+      # Redis read-through cache. On a hit return the cached solutions; on a miss run the
+      # query (vanilla #query via super) and cache its return value. No options[:cache_key]
+      # side-channel -- we cache exactly what super returned (fixes the fork's bug). The cache
+      # is inert when redis_cache is nil, so this is a passthrough when caching is off.
+      def query(query, **options)
+        cached = @cache.get(query, options)
+        return cached unless cached.nil?
+
+        result = super
+        @cache.store(query, options, result)
+        result
+      end
+
+      # Invalidate the written graph's cached queries AFTER the write commits (super). The
+      # fork invalidated BEFORE the write, opening a stale-repopulation race (proposal Â§3.1).
+      def update(query, **options)
+        result = super
+        if @cache.redis_cache && query.respond_to?(:options) && !query.options[:bypass_cache]
+          graph = query.options[:graph]
+          @cache.invalidate(graph.to_s) if graph
+        end
+        result
+      end
+
       # Vanilla sparql-client posts protocol-1.1 queries as `application/sparql-query` with a
       # raw body, which 4store rejects ("only implements application/x-www-form-urlencoded").
       # goo configures its clients with a form-urlencoded Content-Type; honor it by posting the

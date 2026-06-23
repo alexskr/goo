@@ -7,13 +7,6 @@ class TestCache < MiniTest::Unit::TestCase
     super(*args)
   end
 
-  # Gate 1 of the sparql-client de-fork: caching read-through/invalidation is re-homed into
-  # goo in Gate 2. Until then the cache is inert, so these assertions can't hold. Un-skip in
-  # Gate 2 (see docs/sparql-client-defork-proposal.md).
-  def setup
-    skip "caching re-home lands in Gate 2 (sparql-client de-fork)"
-  end
-
   def self.before_suite
     begin
       Goo.use_cache=false
@@ -165,24 +158,33 @@ class TestCache < MiniTest::Unit::TestCase
     Goo.use_cache=false
   end
 
-  # Phase 0 placeholder for the sparql-client de-fork migration.
-  #
-  # The forked sparql-client invalidates a graph's query cache BEFORE the SPARQL UPDATE
-  # that rewrites it commits. That is the invalidate-before-write race documented in
-  # docs/sparql-client-defork-proposal.md (§3.1): a concurrent read landing between the
-  # invalidate and the commit can re-cache stale triples that then survive indefinitely.
-  #
-  # The existing tests above only check the post-settle round-trip (key gone, new value
-  # returned), which the buggy ordering still passes. This test pins the *corrected*
-  # contract -- the write commits, THEN the cache invalidates -- by recording the call
-  # order around a real save.
-  #
-  # It is skipped until Phase 3, when caching moves into Goo::SPARQL::Ext::Caching and
-  # invalidation is reordered to run after `super` (the write). It cannot pass against the
-  # current fork, so enabling it now would just add a permanent red.
+  # Goo::SPARQL::Client#update must invalidate the graph's cached queries AFTER the write
+  # commits, not before (the fork invalidated first, opening a stale-repopulation race --
+  # docs/sparql-client-defork-proposal.md §3.1). Record the order of the HTTP write vs. the
+  # cache invalidation around a real update and assert write-then-invalidate.
   def test_invalidation_happens_after_write
-    skip "Enable in Phase 3: caching moves to Goo::SPARQL::Ext::Caching and invalidation " \
-         "is reordered after the write (super). See docs/sparql-client-defork-proposal.md §3.1."
+    Goo.use_cache = true
+    client = Goo.sparql_update_client
+    cache = client.cache
+    order = []
+
+    orig_invalidate = cache.method(:invalidate)
+    orig_write = client.method(:make_post_request)
+    cache.define_singleton_method(:invalidate) { |g| order << :invalidate; orig_invalidate.call(g) }
+    client.define_singleton_method(:make_post_request) { |q, h = {}| order << :write; orig_write.call(q, h) }
+
+    begin
+      stmt = RDF::Statement.new(RDF::URI("http://goo.org/default/order_subj"),
+                                RDF::URI("http://goo.org/default/order_pred"),
+                                RDF::URI("http://goo.org/default/order_obj"))
+      client.delete_data([stmt], graph: RDF::URI("http://goo.org/default/OrderTest"))
+    ensure
+      cache.singleton_class.send(:remove_method, :invalidate)
+      client.singleton_class.send(:remove_method, :make_post_request)
+      Goo.use_cache = false
+    end
+
+    assert_equal [:write, :invalidate], order
   end
 
 end
