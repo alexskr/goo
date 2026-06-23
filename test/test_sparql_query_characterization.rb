@@ -131,6 +131,23 @@ class TestSparqlQueryCharacterization < MiniTest::Unit::TestCase
     assert_equal expected, got
   end
 
+  def test_filter_and_include_order_filter_before_union_bind
+    # A real FILTER plus an include: the union-with-bind OPTIONAL must render AFTER the
+    # filter (locks the ordering preserved by QueryBuilder#apply_union_with_bind).
+    expected =
+      'SELECT DISTINCT ?id ?attributeProperty ?attributeObject ?inverseAttributeObject ' \
+      'FROM <http://goo.org/default/University> FROM <http://goo.org/default/Program> ' \
+      'WHERE { ?id a <http://goo.org/default/University> . ' \
+      '?id <http://goo.org/default/name> ?internal_join_var_0 . ' \
+      'FILTER(str(?internal_join_var_0) =  "Stanford") ' \
+      'OPTIONAL { { ?attributeObject <http://goo.org/default/university> ?id . ' \
+      'BIND( "programs" as ?attributeProperty) } } }'
+    got = sparql_for("4store") do
+      University.where.filter(Goo::Filter.new(:name) == "Stanford").include(:programs).all
+    end
+    assert_equal expected, got
+  end
+
   # --- additional baseline shapes (backend-agnostic) ----------------------------
   # These don't touch the union-with-bind branches, so they're asserted on one backend.
   # They broaden the golden contract to joins, filters, ordering, counting, paging.
