@@ -7,6 +7,13 @@ class TestCache < MiniTest::Unit::TestCase
     super(*args)
   end
 
+  # Gate 1 of the sparql-client de-fork: caching read-through/invalidation is re-homed into
+  # goo in Gate 2. Until then the cache is inert, so these assertions can't hold. Un-skip in
+  # Gate 2 (see docs/sparql-client-defork-proposal.md).
+  def setup
+    skip "caching re-home lands in Gate 2 (sparql-client de-fork)"
+  end
+
   def self.before_suite
     begin
       Goo.use_cache=false

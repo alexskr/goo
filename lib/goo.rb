@@ -123,8 +123,7 @@ module Goo
                                                               headers: { "Content-Type" => "application/x-www-form-urlencoded", "Accept" => "application/sparql-results+json"},
                                                               read_timeout: 10000,
                                                               validate: false,
-                                                              redis_cache: @@redis_client,
-                                                              logger: query_logging? ? Logger.new(query_logging_file) : nil)
+                                                              redis_cache: @@redis_client)
     @@sparql_backends[name][:update] = Goo::SPARQL::Client.new(opts[:update],
                                                                protocol: "1.1",
                                                                headers: { "Content-Type" => "application/x-www-form-urlencoded", "Accept" => "application/sparql-results+json"},
@@ -189,10 +188,6 @@ module Goo
     @@query_logging_file = value
   end
 
-  def self.logger
-    return @@sparql_backends[:main][:query].logger
-  end
-
   def self.add_search_backend(name, *opts)
     opts = opts[0]
     unless opts.include? :service
@@ -212,10 +207,12 @@ module Goo
     set_sparql_cache
   end
 
+  # NOTE: SPARQL query logging was removed during the sparql-client de-fork
+  # (vanilla upstream has no logger). This setter only records the flags; a
+  # dev-focused query logger will be reintroduced as a separate task.
   def self.add_query_logger(enabled: false, file: )
     @@query_logging = enabled
     @@query_logging_file = file
-    set_query_logging
   end
 
   def self.set_sparql_cache
@@ -234,18 +231,6 @@ module Goo
     end
   end
 
-
-  def self.set_query_logging
-    if @@sparql_backends.length > 0 && query_logging?
-      @@sparql_backends.each do |k,epr|
-        epr[:query].logger = Logger.new(query_logging_file)
-      end
-    elsif @@sparql_backends.length > 0
-      @@sparql_backends.each do |k,epr|
-        epr[:query].logger = nil
-      end
-    end
-  end
 
   def self.configure_sanity_check()
     unless @@namespaces.length > 0

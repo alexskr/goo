@@ -103,13 +103,14 @@ module Goo
         self
       end
 
-      # Push the union-with-bind QueryElement onto the query's filter list. The gem renders
-      # each filter element verbatim via `map(&:to_s)` -- no FILTER() wrapper, no trailing
-      # ` .` -- which is exactly the raw group-graph-pattern we need inside WHERE.
+      # Stash the union-with-bind QueryElement so Goo::SPARQL::Ext::QuerySerialization renders
+      # it as the LAST thing inside the WHERE group -- after any where-pattern unions. Order
+      # matters: the block is an OPTIONAL (left-join), so placing it after the unions matches
+      # the original fork semantics (and result sets).
       def apply_union_with_bind
         return self if @union_with_bind.nil?
 
-        (@query.options[:filters] ||= []) << @union_with_bind
+        @query.options[:goo_union_with_bind] = @union_with_bind
         self
       end
 
