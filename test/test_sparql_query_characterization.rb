@@ -26,7 +26,16 @@ class TestSparqlQueryCharacterization < MiniTest::Unit::TestCase
     # Always restore the real mapper and the configured backend, even on failure.
     # (No backend/Redis connection needed -- these tests never touch the network.)
     Goo::SPARQL::SolutionMapper.send(:define_method, :map_each_solutions, ORIGINAL_MAP)
-    use_backend(Goo.settings.goo_backend_name)
+    # Restore :main to the REAL configured backend (env-driven), not the dummy URL used for
+    # offline capture -- otherwise a later test file inherits a bogus endpoint. No connection
+    # is made here (we only rebuild the client objects).
+    s = Goo.settings
+    Goo.add_sparql_backend(:main,
+                           backend_name: s.goo_backend_name,
+                           query:  "http://#{s.goo_host}:#{s.goo_port}#{s.goo_path_query}",
+                           data:   "http://#{s.goo_host}:#{s.goo_port}#{s.goo_path_data}",
+                           update: "http://#{s.goo_host}:#{s.goo_port}#{s.goo_path_update}",
+                           options: { rules: :NONE })
   end
 
   # Build the SPARQL goo would send for `backend`, capturing it instead of executing.
