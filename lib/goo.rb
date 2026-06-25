@@ -54,6 +54,7 @@ module Goo
   @@use_cache = false
   @@query_logging = false
   @@query_logging_file = nil
+  @@query_count_total = nil # process-wide store-bound query tally; nil = disabled (test reporting)
   @@slice_loading_size = 500
 
 
@@ -216,6 +217,18 @@ module Goo
   def self.tick_query_count
     count = Thread.current[:goo_query_count]
     Thread.current[:goo_query_count] = count + 1 unless count.nil?
+    @@query_count_total += 1 unless @@query_count_total.nil?
+  end
+
+  # Process-wide tally of store-bound SPARQL queries, for test-run reporting. Off in production
+  # (the tick is a single nil-check); a test harness opts in, then prints query_count_total at
+  # the end of the run. Not exact under concurrent threads, but test suites run queries serially.
+  def self.enable_query_count_total
+    @@query_count_total = 0
+  end
+
+  def self.query_count_total
+    @@query_count_total
   end
 
   # Count the store-bound SPARQL queries issued by the block. Nesting-safe: an inner count also

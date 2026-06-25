@@ -102,9 +102,11 @@ class GooTest
   class Unit < MiniTest::Unit
 
     def before_suites
+      Goo.enable_query_count_total
     end
 
     def after_suites
+      warn "\n[goo] store-bound SPARQL queries executed during test run: #{Goo.query_count_total}"
     end
 
     def _run_suites(suites, type)
