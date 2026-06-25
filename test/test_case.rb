@@ -102,9 +102,12 @@ class GooTest
   class Unit < MiniTest::Unit
 
     def before_suites
+      Goo.enable_query_count_total
     end
 
     def after_suites
+      warn "\n[goo] SPARQL during test run: #{Goo.query_count_total} store-bound queries, " \
+           "#{Goo.cache_hit_total} cache hits"
     end
 
     def _run_suites(suites, type)
@@ -153,4 +156,12 @@ class GooTest
     return count
   end
 
+end
+
+# SPARQL query-count assertions (assert_max_sparql_queries / assert_sparql_queries) for
+# performance/regression tests, defined once in goo's lib so downstream suites (OLD, etc.) can
+# reuse them via the same require + include.
+require_relative '../lib/goo/test_helpers' # goo's own rake task sets libs=[], so not on $LOAD_PATH
+class MiniTest::Unit::TestCase
+  include Goo::TestHelpers
 end
