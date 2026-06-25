@@ -52,6 +52,8 @@ module Goo
   @@uuid = UUID.new
   @@debug_enabled = false
   @@use_cache = false
+  @@query_logging = false
+  @@query_logging_file = nil
   @@slice_loading_size = 500
 
 
@@ -188,6 +190,45 @@ module Goo
     port = opts.delete(:port) || 6379
     @@redis_client = Redis.new host: host, port: port, timeout: 300
     set_sparql_cache
+  end
+
+  # The query logger attached to the :main query client (records SPARQL text, timing, result
+  # size, cache hits). Inert unless query logging was enabled.
+  def self.query_logger
+    @@sparql_backends[:main][:query].query_logger
+  end
+
+  # Backward-compatible alias for the fork-era name. AgroPortal's ontologies_api
+  # Admin::LoggingController calls Goo.logger.{get_logs,queries_last_n_seconds,users_query_count}.
+  def self.logger
+    query_logger
+  end
+
+  def self.query_logging?
+    @@query_logging
+  end
+
+  # Turn SPARQL query logging on/off and (re)attach loggers to the registered backends.
+  # Default off; opt in via this call or the QUERIES_LOGGING env var (see config.rb).
+  def self.enable_query_logging(enabled: false, file: nil)
+    @@query_logging = enabled
+    @@query_logging_file = file
+    set_query_logging
+  end
+
+  def self.set_query_logging
+    return unless @@sparql_backends.length > 0
+
+    @@sparql_backends.each_value do |epr|
+      logger = if @@query_logging
+                 Goo::SPARQL::QueryLogger.new(redis: @@redis_client, file: @@query_logging_file)
+               else
+                 Goo::SPARQL::QueryLogger.new # inert
+               end
+      epr[:query].query_logger = logger
+      epr[:update].query_logger = logger
+      epr[:data].query_logger = logger
+    end
   end
 
   def self.set_sparql_cache

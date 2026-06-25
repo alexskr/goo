@@ -9,15 +9,20 @@ module Goo
 
       # Goo owns the Redis read-through cache (vanilla sparql-client has none). The cache is
       # inert until a redis_cache is set (Goo.use_cache / set_sparql_cache wires it).
-      attr_reader :cache
+      attr_reader :cache, :query_logger
 
       def initialize(url, **options, &block)
         @cache = Goo::SPARQL::Cache.new(redis_cache: options[:redis_cache])
+        @query_logger = Goo::SPARQL::QueryLogger.new # inert until Goo.set_query_logging wires it
         super(url, **options, &block)
       end
 
       def redis_cache=(redis_cache)
         @cache.redis_cache = redis_cache
+      end
+
+      def query_logger=(logger)
+        @query_logger = logger
       end
 
       # Redis read-through cache. On a hit return the cached solutions; on a miss run the
@@ -26,17 +31,26 @@ module Goo
       # is inert when redis_cache is nil, so this is a passthrough when caching is off.
       def query(query, **options)
         cached = @cache.get(query, options)
-        return cached unless cached.nil?
+        unless cached.nil?
+          return @query_logger.around(query, cached: true, user: options[:user]) { cached }
+        end
 
-        result = super
-        @cache.store(query, options, result)
-        result
+        # The response byte count is only known after #response has run, so hand the logger a
+        # proc that reads the thread-local stash set there (thread-local => safe under a client
+        # shared across request threads).
+        Thread.current[:goo_last_response_bytes] = nil
+        @query_logger.around(query, cached: false, user: options[:user],
+                             bytes: -> { Thread.current[:goo_last_response_bytes] }) do
+          result = super
+          @cache.store(query, options, result)
+          result
+        end
       end
 
       # Invalidate the written graph's cached queries AFTER the write commits (super). The
       # fork invalidated BEFORE the write, opening a stale-repopulation race (proposal Â§3.1).
       def update(query, **options)
-        result = super
+        result = @query_logger.around(query, cached: false, user: options[:user]) { super }
         if @cache.redis_cache && query.respond_to?(:options) && !query.options[:bypass_cache]
           graph = query.options[:graph]
           @cache.invalidate(graph.to_s) if graph
@@ -55,6 +69,14 @@ module Goo
           request.set_form_data({ (@op || :query) => query.to_s })
         end
         request
+      end
+
+      # Stash the raw response size so #query can log it (cleared per query in #query). Thread-
+      # local because the query client is shared across request threads.
+      def response(query, **options)
+        resp = super
+        Thread.current[:goo_last_response_bytes] = resp.body&.bytesize if resp.respond_to?(:body)
+        resp
       end
 
       MIMETYPE_RAPPER_MAP = {
