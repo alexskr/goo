@@ -72,4 +72,17 @@ class TestQueryCount < MiniTest::Unit::TestCase
     n = Goo.count_sparql_queries { University.where.all }
     assert_sparql_queries(n) { University.where.all }
   end
+
+  # Regression: the queries_debug timing path called an undefined process_query_intl (renamed to
+  # process_query_init), so enabling QUERIES_DEBUG raised NoMethodError on every query. Guard it.
+  def test_queries_debug_timing_path_runs_and_sets_header
+    Goo.queries_debug(true)
+    app = ->(_env) { University.where.include(:name).all; [200, {}, ["ok"]] }
+    status, headers, _ = Goo::Debug.new(app).call({})
+    assert_equal 200, status
+    refute_nil headers["ncbo-time-goo-process-query"], "debug timing header must be populated"
+    assert_equal "1", headers["ncbo-sparql-query-count"]
+  ensure
+    Goo.queries_debug(false)
+  end
 end
