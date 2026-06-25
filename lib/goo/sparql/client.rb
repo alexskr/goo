@@ -45,6 +45,7 @@ module Goo
         Thread.current[:goo_last_response_bytes] = nil
         @query_logger.around(query, cached: false, user: options[:user], count_cache: cache_on,
                              bytes: -> { Thread.current[:goo_last_response_bytes] }) do
+          Goo.tick_query_count # a store-bound read (cache hits above don't tick)
           result = super
           @cache.store(query, options, result)
           result
@@ -54,7 +55,10 @@ module Goo
       # Invalidate the written graph's cached queries AFTER the write commits (super). The
       # fork invalidated BEFORE the write, opening a stale-repopulation race (proposal Â§3.1).
       def update(query, **options)
-        result = @query_logger.around(query, cached: false, user: options[:user]) { super }
+        result = @query_logger.around(query, cached: false, user: options[:user]) do
+          Goo.tick_query_count
+          super
+        end
         if @cache.redis_cache && query.respond_to?(:options) && !query.options[:bypass_cache]
           graph = query.options[:graph]
           @cache.invalidate(graph.to_s) if graph

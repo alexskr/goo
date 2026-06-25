@@ -154,3 +154,24 @@ class GooTest
   end
 
 end
+
+# SPARQL query-count assertions for performance/regression tests. The count is deterministic for
+# a given code path + fixture data (unlike wall time), so these catch N+1 / query-fan-out
+# regressions identically on a laptop and in CI. Backed by Goo.count_sparql_queries.
+class MiniTest::Unit::TestCase
+  # Assert the block issues no more than `max` store-bound SPARQL queries. Returns the count.
+  def assert_max_sparql_queries(max, msg = nil)
+    count = Goo.count_sparql_queries { yield }
+    assert count <= max,
+           msg || "expected at most #{max} SPARQL queries, got #{count}"
+    count
+  end
+
+  # Assert the block issues exactly `expected` store-bound SPARQL queries. Returns the count.
+  def assert_sparql_queries(expected, msg = nil)
+    count = Goo.count_sparql_queries { yield }
+    assert_equal expected, count,
+                 msg || "expected #{expected} SPARQL queries, got #{count}"
+    count
+  end
+end

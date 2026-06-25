@@ -204,6 +204,32 @@ module Goo
     query_logger
   end
 
+  # --- SPARQL query counting -------------------------------------------------------------
+  # Counts store-bound SPARQL round-trips (cache hits don't count) via a thread-local. Unlike
+  # wall time, the count is deterministic for a given code path + data, so it's the right signal
+  # for catching N+1 / query-fan-out regressions in goo/OLD across machines (laptop vs CI).
+  #
+  # Cheap and inert by default: tick_query_count is a no-op unless a counting context is active,
+  # so there's zero overhead in normal operation.
+
+  # Increment the active query counter, if any. Called at the client seam per store round-trip.
+  def self.tick_query_count
+    count = Thread.current[:goo_query_count]
+    Thread.current[:goo_query_count] = count + 1 unless count.nil?
+  end
+
+  # Count the store-bound SPARQL queries issued by the block. Nesting-safe: an inner count also
+  # rolls up into the enclosing counter. Returns the count for the block.
+  def self.count_sparql_queries
+    outer = Thread.current[:goo_query_count]
+    Thread.current[:goo_query_count] = 0
+    yield
+    Thread.current[:goo_query_count]
+  ensure
+    inner = Thread.current[:goo_query_count] || 0
+    Thread.current[:goo_query_count] = outer.nil? ? nil : outer + inner
+  end
+
   def self.query_logging?
     @@query_logging
   end
@@ -515,22 +541,18 @@ module Goo
 
     def call(env)
       Thread.current[:ncbo_debug] = {}
+      Thread.current[:goo_query_count] = 0 # arm the per-request SPARQL query counter
       status, headers, response = @app.call(env)
-      if Thread.current[:ncbo_debug]
-        if Thread.current[:ncbo_debug][:sparql_queries]
-          queries = Thread.current[:ncbo_debug][:sparql_queries]
-          processing = queries.map { |x| x[0] }.inject { |sum,x| sum + x }
-          parsing = queries.map { |x| x[1] }.inject { |sum,x| sum + x }
-          headers["ncbo-time-goo-sparql-queries"] = "%.3f"%processing
-          headers["ncbo-time-goo-response-parsing"] = "%.3f"%parsing
-        end
-        if Thread.current[:ncbo_debug][:goo_process_query]
-          goo_totals = Thread.current[:ncbo_debug][:goo_process_query]
-            .inject { |sum,x| sum + x }
-          headers["ncbo-time-goo-process-query"] = "%.3f"%goo_totals
-        end
+      if Thread.current[:ncbo_debug] && Thread.current[:ncbo_debug][:goo_process_query]
+        goo_totals = Thread.current[:ncbo_debug][:goo_process_query]
+          .inject { |sum,x| sum + x }
+        headers["ncbo-time-goo-process-query"] = "%.3f"%goo_totals
       end
-      return [status, headers, response]
+      # Count of store-bound SPARQL queries this request issued -- deterministic, unlike timing.
+      headers["ncbo-sparql-query-count"] = Thread.current[:goo_query_count].to_s
+      [status, headers, response]
+    ensure
+      Thread.current[:goo_query_count] = nil
     end
   end
 
