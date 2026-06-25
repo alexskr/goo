@@ -35,6 +35,7 @@ module Goo
         cache_on = !@cache.redis_cache.nil?
         cached = @cache.get(query, options)
         unless cached.nil?
+          Goo.tick_cache_hit # served from cache, no store round-trip (see Goo.tick_query_count)
           return @query_logger.around(query, cached: true, user: options[:user],
                                       count_cache: cache_on) { cached }
         end

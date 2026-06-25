@@ -52,6 +52,21 @@ class TestQueryCount < MiniTest::Unit::TestCase
     assert_equal inner, outer, "an inner block's queries must roll up into the enclosing counter"
   end
 
+  def test_cache_hits_are_tallied_separately
+    # Run-level tallies are armed by the runner (before_suites); snapshot deltas so we don't
+    # depend on other tests. A repeated query with caching on should register a cache hit, not
+    # another store-bound query.
+    Goo.use_cache = true
+    University.where.include(:name).all                 # warm the cache (store-bound miss)
+    hits_before  = Goo.cache_hit_total.to_i
+    store_before = Goo.query_count_total.to_i
+    University.where.include(:name).all                 # identical -> cache hit
+    assert Goo.cache_hit_total.to_i > hits_before, "a repeated cached query should tally a hit"
+    assert_equal store_before, Goo.query_count_total.to_i, "a cache hit must not tally as store-bound"
+  ensure
+    Goo.use_cache = false
+  end
+
   def test_tick_is_inert_outside_a_counting_context
     Thread.current[:goo_query_count] = nil
     Goo.tick_query_count # must be a harmless no-op, leaving no counter armed

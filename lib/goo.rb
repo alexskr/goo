@@ -55,6 +55,7 @@ module Goo
   @@query_logging = false
   @@query_logging_file = nil
   @@query_count_total = nil # process-wide store-bound query tally; nil = disabled (test reporting)
+  @@cache_hit_total = nil   # process-wide cache-hit tally; nil = disabled (test reporting)
   @@slice_loading_size = 500
 
 
@@ -220,15 +221,27 @@ module Goo
     @@query_count_total += 1 unless @@query_count_total.nil?
   end
 
-  # Process-wide tally of store-bound SPARQL queries, for test-run reporting. Off in production
-  # (the tick is a single nil-check); a test harness opts in, then prints query_count_total at
-  # the end of the run. Not exact under concurrent threads, but test suites run queries serially.
+  # Counted at the cache-hit branch of Client#query (a hit means caching is on and served the
+  # query without a store round-trip). Complements tick_query_count: store-bound + hits = total
+  # logical reads, and hits/(hits+store-bound-reads) is the cache effectiveness during the run.
+  def self.tick_cache_hit
+    @@cache_hit_total += 1 unless @@cache_hit_total.nil?
+  end
+
+  # Process-wide tallies for test-run reporting. Off in production (each tick is a single
+  # nil-check); a test harness opts in, then prints the totals at the end of the run. Not exact
+  # under concurrent threads, but test suites run queries serially.
   def self.enable_query_count_total
     @@query_count_total = 0
+    @@cache_hit_total = 0
   end
 
   def self.query_count_total
     @@query_count_total
+  end
+
+  def self.cache_hit_total
+    @@cache_hit_total
   end
 
   # Count the store-bound SPARQL queries issued by the block. Nesting-safe: an inner count also

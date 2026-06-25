@@ -106,7 +106,8 @@ class GooTest
     end
 
     def after_suites
-      warn "\n[goo] store-bound SPARQL queries executed during test run: #{Goo.query_count_total}"
+      warn "\n[goo] SPARQL during test run: #{Goo.query_count_total} store-bound queries, " \
+           "#{Goo.cache_hit_total} cache hits"
     end
 
     def _run_suites(suites, type)
