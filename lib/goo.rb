@@ -235,7 +235,7 @@ module Goo
   end
 
   # Turn SPARQL query logging on/off and (re)attach loggers to the registered backends.
-  # Default off; opt in via this call or the QUERIES_LOGGING env var (see config.rb).
+  # Default off; opt in via this call or the OP_QUERIES_LOGGING env var (see config.rb).
   def self.enable_query_logging(enabled: false, file: nil)
     @@query_logging = enabled
     @@query_logging_file = file

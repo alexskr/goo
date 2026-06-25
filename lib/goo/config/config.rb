@@ -26,8 +26,8 @@ module Goo
     @settings.goo_redis_host      ||= ENV['REDIS_HOST'] || 'localhost'
     @settings.goo_redis_port      ||= ENV['REDIS_PORT'] || 6379
     @settings.bioportal_namespace ||= ENV['BIOPORTAL_NAMESPACE'] || 'http://data.bioontology.org/'
-    @settings.query_logging       ||= ENV['QUERIES_LOGGING'] || false
-    @settings.query_logging_file  ||= ENV['QUERIES_LOGGING_FILE'] || nil
+    @settings.query_logging       ||= ENV['OP_QUERIES_LOGGING'] || false
+    @settings.query_logging_file  ||= ENV['OP_QUERIES_LOGGING_FILE'] || nil
     @settings.queries_debug       ||= ENV['QUERIES_DEBUG'] || false
     @settings.slice_loading_size  ||= ENV['GOO_SLICES']&.to_i || 500
     puts "(GOO) >> Using RDF store (#{@settings.goo_backend_name}) #{@settings.goo_host}:#{@settings.goo_port}#{@settings.goo_path_query}"
