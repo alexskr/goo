@@ -115,6 +115,44 @@ class TestQueryLogger < MiniTest::Unit::TestCase
     assert_empty logger.all
   end
 
+  # --- cache hit rate --------------------------------------------------------------------
+
+  def test_cache_hit_rate_empty
+    logger = Goo::SPARQL::QueryLogger.new(redis: @redis)
+    assert_equal({ hits: 0, misses: 0, total: 0, rate: 0.0 }, logger.cache_hit_rate)
+  end
+
+  def test_cache_hit_rate_counts_only_eligible
+    logger = Goo::SPARQL::QueryLogger.new(redis: @redis)
+    3.times { logger.around("q", cached: true,  count_cache: true) { [] } }   # hits
+    1.times { logger.around("q", cached: false, count_cache: true) { [] } }   # miss
+    # caching-off reads and writes pass count_cache:false -> must NOT move the ratio
+    5.times { logger.around("q", cached: false, count_cache: false) { [] } }
+    logger.around("update", cached: false) { [] }
+
+    stats = logger.cache_hit_rate
+    assert_equal 3, stats[:hits]
+    assert_equal 1, stats[:misses]
+    assert_equal 4, stats[:total]
+    assert_in_delta 0.75, stats[:rate], 0.0001
+  end
+
+  def test_cache_hit_rate_survives_trim
+    # per-query logs roll off the ring buffer, but the lifetime tally must not.
+    logger = Goo::SPARQL::QueryLogger.new(redis: @redis, max_logs: 5)
+    20.times { logger.around("q", cached: true, count_cache: true) { [] } }
+    assert_equal 5, logger.all(limit: 100).length      # logs trimmed
+    assert_equal 20, logger.cache_hit_rate[:hits]      # tally intact
+  end
+
+  def test_clear_resets_hit_rate
+    logger = Goo::SPARQL::QueryLogger.new(redis: @redis)
+    logger.around("q", cached: true, count_cache: true) { [] }
+    refute_equal 0, logger.cache_hit_rate[:total]
+    logger.clear
+    assert_equal 0, logger.cache_hit_rate[:total]
+  end
+
   # --- backward-compat shim (AgroPortal Admin::LoggingController) ------------------------
 
   def test_get_logs_returns_all_uncapped

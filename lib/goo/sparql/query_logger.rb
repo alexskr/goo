@@ -24,6 +24,8 @@ module Goo
       INDEX = "#{KEY}:index".freeze
       USERS = "#{KEY}:users".freeze       # ZSET user-id -> query count
       USER_EXPIRY = 2_592_000             # 30 days (matches the fork's per-user retention)
+      CACHE_HITS = "#{KEY}:cache:hits".freeze     # lifetime read-through cache hit/miss tallies
+      CACHE_MISSES = "#{KEY}:cache:misses".freeze
 
       attr_accessor :redis, :file_logger, :enabled
 
@@ -40,7 +42,11 @@ module Goo
       #
       # @param bytes [Proc, Integer, nil] response size, or a proc evaluated AFTER the block
       #   (the byte count is only known once the response has been read -- see Client#response).
-      def around(query, cached:, user: nil, bytes: nil)
+      # @param count_cache [Boolean] whether this entry counts toward the cache hit-rate tally.
+      #   The caller (Client#query) sets this true only for cache-ELIGIBLE reads -- i.e. caching
+      #   is actually on -- so the rate measures cache effectiveness, not whether caching is
+      #   enabled. Writes and caching-off queries pass false and don't move the ratio.
+      def around(query, cached:, user: nil, bytes: nil, count_cache: false)
         return yield unless @enabled
 
         result = nil
@@ -51,7 +57,21 @@ module Goo
                rows: (result.respond_to?(:size) ? result.size : nil),
                bytes: (bytes.respond_to?(:call) ? bytes.call : bytes),
                execution_time: elapsed.round(4))
+        record_cache_stat(cached) if count_cache
         result
+      end
+
+      # Lifetime read-through cache hit rate. Counters survive the per-query ring-buffer trim, so
+      # this is an all-time tally (since the last #clear), not a windowed rate.
+      # @return [Hash] { hits:, misses:, total:, rate: } (rate in 0.0..1.0, 0.0 when no reads)
+      def cache_hit_rate
+        return { hits: 0, misses: 0, total: 0, rate: 0.0 } unless @redis
+
+        hits = @redis.get(CACHE_HITS).to_i
+        misses = @redis.get(CACHE_MISSES).to_i
+        total = hits + misses
+        { hits: hits, misses: misses, total: total,
+          rate: total.zero? ? 0.0 : (hits.to_f / total).round(4) }
       end
 
       # Entries logged within the last `seconds`, newest first.
@@ -75,7 +95,7 @@ module Goo
 
         ids = @redis.zrange(INDEX, 0, -1)
         @redis.del(*ids.map { |i| entry_key(i) }) unless ids.empty?
-        @redis.del(INDEX, USERS)
+        @redis.del(INDEX, USERS, CACHE_HITS, CACHE_MISSES)
       end
 
       # --- backward-compatibility shim --------------------------------------------------------
@@ -150,6 +170,12 @@ module Goo
 
         @redis.zincrby(USERS, 1, user.to_s)
         @redis.expire(USERS, USER_EXPIRY)
+      end
+
+      def record_cache_stat(hit)
+        return unless @redis
+
+        with_redis { @redis.incr(hit ? CACHE_HITS : CACHE_MISSES) }
       end
 
       def trim

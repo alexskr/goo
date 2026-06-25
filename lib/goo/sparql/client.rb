@@ -30,16 +30,20 @@ module Goo
       # side-channel -- we cache exactly what super returned (fixes the fork's bug). The cache
       # is inert when redis_cache is nil, so this is a passthrough when caching is off.
       def query(query, **options)
+        # Only count toward the cache hit-rate when caching is actually on, so the ratio measures
+        # cache effectiveness rather than whether caching is enabled (see QueryLogger#around).
+        cache_on = !@cache.redis_cache.nil?
         cached = @cache.get(query, options)
         unless cached.nil?
-          return @query_logger.around(query, cached: true, user: options[:user]) { cached }
+          return @query_logger.around(query, cached: true, user: options[:user],
+                                      count_cache: cache_on) { cached }
         end
 
         # The response byte count is only known after #response has run, so hand the logger a
         # proc that reads the thread-local stash set there (thread-local => safe under a client
         # shared across request threads).
         Thread.current[:goo_last_response_bytes] = nil
-        @query_logger.around(query, cached: false, user: options[:user],
+        @query_logger.around(query, cached: false, user: options[:user], count_cache: cache_on,
                              bytes: -> { Thread.current[:goo_last_response_bytes] }) do
           result = super
           @cache.store(query, options, result)
